@@ -42,6 +42,16 @@
 
 ---
 
+## ⬇️ Download & Install
+
+Download the latest prebuilt release for macOS:
+
+- 💿 **[Download AeroBar.dmg (v1.0.0)](https://github.com/faraz-scalepixel/Aerobar/releases/download/v1.0.0/AeroBar-v1.0.0.dmg)** *(Recommended — drag-and-drop installer)*
+- 📦 **[Download AeroBar.zip (v1.0.0)](https://github.com/faraz-scalepixel/Aerobar/releases/download/v1.0.0/AeroBar-v1.0.0-macOS.zip)**
+- 🏷️ **[View on GitHub Releases](https://github.com/faraz-scalepixel/Aerobar/releases/tag/v1.0.0)**
+
+---
+
 ## 🚀 Quick Start (Native macOS App)
 
 AeroBar has already been compiled into a standalone macOS bundle: [`AeroBar.app`](file:///Users/faraz/Apps/AirCon%20Remote/AeroBar.app).
