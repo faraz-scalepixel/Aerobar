@@ -263,111 +263,163 @@ public class SmartACService {
             return
         }
         
+        if state.isOn {
+            // When turning ON: send switch:on first, then settings in a follow-up call.
+            // Samsung SmartThings ignores temp/mode/fan commands bundled with the power-on
+            // command when the device is currently off. Sequential calls are required.
+            sendSmartThingsCommands(
+                token: cleanToken,
+                deviceId: deviceId,
+                commands: [["component": "main", "capability": "switch", "command": "on"]]
+            ) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .failure(let err):
+                    DispatchQueue.main.async { completion(.failure(err)) }
+                case .success:
+                    // AC is now on — send settings
+                    let settingsCommands = self.buildSettingsCommands(state: state)
+                    self.sendSmartThingsCommands(
+                        token: cleanToken,
+                        deviceId: deviceId,
+                        commands: settingsCommands
+                    ) { result in
+                        DispatchQueue.main.async {
+                            switch result {
+                            case .success:
+                                completion(.success("Samsung AC on + settings synced via SmartThings"))
+                            case .failure(let err):
+                                // Settings call failed but AC is on — report partial success
+                                completion(.failure(NSError(domain: "AeroBar", code: 207,
+                                    userInfo: [NSLocalizedDescriptionKey: "AC powered on but settings sync failed: \(err.localizedDescription)"])))
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Turning OFF: single command is sufficient and always works
+            sendSmartThingsCommands(
+                token: cleanToken,
+                deviceId: deviceId,
+                commands: [["component": "main", "capability": "switch", "command": "off"]]
+            ) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success:
+                        completion(.success("Samsung AC turned off via SmartThings"))
+                    case .failure(let err):
+                        completion(.failure(err))
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Build the settings commands (temp, mode, fan, swing) for when the AC is on
+    private func buildSettingsCommands(state: ACState) -> [[String: Any]] {
+        var commands: [[String: Any]] = []
+        
+        // AC Mode — set first so the AC interprets the setpoint correctly
+        let stMode: String
+        switch state.mode {
+        case .cool: stMode = "cool"
+        case .heat: stMode = "heat"
+        case .auto: stMode = "auto"
+        case .dry: stMode = "dry"
+        case .fan: stMode = "wind"
+        }
+        commands.append([
+            "component": "main",
+            "capability": "airConditionerMode",
+            "command": "setAirConditionerMode",
+            "arguments": [stMode]
+        ])
+        
+        // Target Temperature
+        commands.append([
+            "component": "main",
+            "capability": "thermostatCoolingSetpoint",
+            "command": "setCoolingSetpoint",
+            "arguments": [Int(round(state.targetTemperature))]
+        ])
+        
+        // Fan Speed
+        let stFan: String
+        switch state.fanSpeed {
+        case .auto: stFan = "auto"
+        case .quiet: stFan = "quiet"
+        case .low: stFan = "low"
+        case .medium: stFan = "medium"
+        case .high: stFan = "high"
+        case .turbo: stFan = "turbo"
+        }
+        commands.append([
+            "component": "main",
+            "capability": "airConditionerFanMode",
+            "command": "setFanMode",
+            "arguments": [stFan]
+        ])
+        
+        // Swing / Oscillation
+        let stSwing: String
+        switch state.airflow {
+        case .vertical: stSwing = "vertical"
+        case .horizontal: stSwing = "horizontal"
+        case .both3D: stSwing = "all"
+        case .fixed: stSwing = "fixed"
+        }
+        commands.append([
+            "component": "main",
+            "capability": "fanOscillationMode",
+            "command": "setFanOscillationMode",
+            "arguments": [stSwing]
+        ])
+        
+        // Samsung WindFree / Eco mode
+        if state.isEco {
+            commands.append([
+                "component": "main",
+                "capability": "custom.airConditionerOptionalMode",
+                "command": "setAcOptionalMode",
+                "arguments": ["windFree"]
+            ])
+        }
+        
+        return commands
+    }
+    
+    /// Low-level helper: POST a commands array to the SmartThings device endpoint
+    private func sendSmartThingsCommands(
+        token: String,
+        deviceId: String,
+        commands: [[String: Any]],
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
         guard let url = URL(string: "https://api.smartthings.com/v1/devices/\(deviceId)/commands") else { return }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(cleanToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        var commands: [[String: Any]] = []
-        
-        // 1. Switch Command
-        commands.append([
-            "component": "main",
-            "capability": "switch",
-            "command": state.isOn ? "on" : "off"
-        ])
-        
-        if state.isOn {
-            // 2. Set Target Temperature
-            commands.append([
-                "component": "main",
-                "capability": "thermostatCoolingSetpoint",
-                "command": "setCoolingSetpoint",
-                "arguments": [Int(round(state.targetTemperature))]
-            ])
-            
-            // 3. Set AC Mode
-            let stMode: String
-            switch state.mode {
-            case .cool: stMode = "cool"
-            case .heat: stMode = "heat"
-            case .auto: stMode = "auto"
-            case .dry: stMode = "dry"
-            case .fan: stMode = "wind"
-            }
-            commands.append([
-                "component": "main",
-                "capability": "airConditionerMode",
-                "command": "setAirConditionerMode",
-                "arguments": [stMode]
-            ])
-            
-            // 4. Set Fan Mode
-            let stFan: String
-            switch state.fanSpeed {
-            case .auto: stFan = "auto"
-            case .quiet: stFan = "quiet"
-            case .low: stFan = "low"
-            case .medium: stFan = "medium"
-            case .high: stFan = "high"
-            case .turbo: stFan = "turbo"
-            }
-            commands.append([
-                "component": "main",
-                "capability": "airConditionerFanMode",
-                "command": "setFanMode",
-                "arguments": [stFan]
-            ])
-            
-            // 5. Oscillation / Swing
-            let stSwing: String
-            switch state.airflow {
-            case .vertical: stSwing = "vertical"
-            case .horizontal: stSwing = "horizontal"
-            case .both3D: stSwing = "all"
-            case .fixed: stSwing = "fixed"
-            }
-            commands.append([
-                "component": "main",
-                "capability": "fanOscillationMode",
-                "command": "setFanOscillationMode",
-                "arguments": [stSwing]
-            ])
-            
-            // 6. Samsung WindFree mode (supported on modern Samsung Smart ACs)
-            if state.isEco {
-                commands.append([
-                    "component": "main",
-                    "capability": "custom.airConditionerOptionalMode",
-                    "command": "setAcOptionalMode",
-                    "arguments": ["windFree"]
-                ])
-            }
-        }
-        
-        let payload: [String: Any] = ["commands": commands]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["commands": commands])
         
         session.dataTask(with: request) { data, response, error in
             if let error = error {
-                DispatchQueue.main.async { completion(.failure(error)) }
+                completion(.failure(error))
                 return
             }
-            
             guard let httpResponse = response as? HTTPURLResponse else {
-                DispatchQueue.main.async { completion(.failure(NSError(domain: "AeroBar", code: 500, userInfo: [NSLocalizedDescriptionKey: "Invalid server response"]))) }
+                completion(.failure(NSError(domain: "AeroBar", code: 500,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid server response"])))
                 return
             }
-            
             if (200...299).contains(httpResponse.statusCode) {
-                DispatchQueue.main.async { completion(.success("Samsung AC updated via SmartThings")) }
+                completion(.success(()))
             } else {
                 let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? "HTTP \(httpResponse.statusCode)"
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "AeroBar", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "SmartThings Error: \(body)"])))
-                }
+                completion(.failure(NSError(domain: "AeroBar", code: httpResponse.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "SmartThings API Error (\(httpResponse.statusCode)): \(body)"])))
             }
         }.resume()
     }

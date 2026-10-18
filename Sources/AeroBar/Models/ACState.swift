@@ -256,6 +256,9 @@ public class ACState: ObservableObject {
             UserDefaults.standard.set(provider.rawValue, forKey: "aerobar_provider")
             if provider == .smartThings {
                 pollSmartThings()
+                startSmartThingsPollTimer()
+            } else {
+                pollTimer?.cancel()
             }
         }
     }
@@ -285,9 +288,12 @@ public class ACState: ObservableObject {
     @Published public var tuyaSecret: String = ""
     @Published public var tuyaDeviceId: String = ""
     
-    private var syncTimer: AnyCancellable?
+    private var ambientTimer: AnyCancellable?
+    private var pollTimer: AnyCancellable?
     private var isSyncing: Bool = false
+    private var hasPendingSync: Bool = false
     private var isUpdatingFromRemote: Bool = false
+    private var debounceTimer: Timer?
     
     public static let shared = ACState()
     
@@ -307,11 +313,27 @@ public class ACState: ObservableObject {
         }
         
         startAmbientSimulation()
-        if self.provider == .smartThings && !savedToken.isEmpty {
+        if self.provider == .smartThings && !savedToken.isEmpty && !savedDevice.isEmpty {
+            // Initial poll after 1s to hydrate state from real device
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 self?.pollSmartThings()
             }
+            // Periodic poll every 30s to stay in sync with Alexa/manual changes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.startSmartThingsPollTimer()
+            }
         }
+    }
+    
+    /// Start a 30-second polling timer to keep UI in sync with real AC state
+    public func startSmartThingsPollTimer() {
+        pollTimer?.cancel()
+        guard provider == .smartThings, !smartThingsToken.isEmpty, !smartThingsDeviceId.isEmpty else { return }
+        pollTimer = Timer.publish(every: 30.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.pollSmartThings()
+            }
     }
     
     public var minTemperature: Double {
@@ -350,8 +372,23 @@ public class ACState: ObservableObject {
     
     public func notifyBackend() {
         guard !isUpdatingFromRemote else { return }
-        guard !isSyncing else { return }
+        
+        // Debounce rapid successive changes (e.g. slider drag) by 300ms
+        debounceTimer?.invalidate()
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            self?.performSync()
+        }
+    }
+    
+    private func performSync() {
+        if isSyncing {
+            // A sync is already in-flight — mark pending so we re-sync when it finishes
+            hasPendingSync = true
+            return
+        }
+        
         isSyncing = true
+        hasPendingSync = false
         connectionStatus = .syncing
         
         SmartACService.shared.syncState(state: self) { [weak self] result in
@@ -364,6 +401,10 @@ public class ACState: ObservableObject {
             case .failure(let error):
                 self.connectionStatus = .disconnected
                 self.smartThingsStatusMessage = error.localizedDescription
+            }
+            // If state changed while we were syncing, send the latest state now
+            if self.hasPendingSync {
+                self.performSync()
             }
         }
     }
@@ -385,6 +426,7 @@ public class ACState: ObservableObject {
                 if let swing = status.airflow { self.airflow = swing }
                 self.isUpdatingFromRemote = false
             case .failure(let err):
+                self.connectionStatus = .disconnected
                 self.smartThingsStatusMessage = "Sync error: \(err.localizedDescription)"
             }
         }
@@ -412,6 +454,7 @@ public class ACState: ObservableObject {
                     }
                     self.smartThingsStatusMessage = "Found \(devices.count) device(s). Connected to \(first.displayName)."
                     self.pollSmartThings()
+                    self.startSmartThingsPollTimer()
                 } else {
                     self.smartThingsStatusMessage = "No air conditioners found in this SmartThings account."
                 }
@@ -423,10 +466,12 @@ public class ACState: ObservableObject {
     
     private func startAmbientSimulation() {
         // Subtle natural ambient room temperature drift when AC is running vs off
-        syncTimer = Timer.publish(every: 10.0, on: .main, in: .common)
+        ambientTimer = Timer.publish(every: 10.0, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self = self else { return }
+                // Only run simulation in demo mode — real devices use pollSmartThings
+                guard self.provider == .demo else { return }
                 if self.isOn {
                     // Drift slowly towards target
                     let diff = self.targetTemperature - self.roomTemperature
