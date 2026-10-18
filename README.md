@@ -32,13 +32,16 @@
   - **Airflow**: Vertical, Horizontal, 3D Swing, Fixed
 - **Authentic AC Remote Beep Sound**:
   - Built-in CoreAudio / Web Audio synthesizer generates authentic high-frequency remote chimes (`[pip!]` and `[pip-pip!]` on power).
-- **Smart AC Integration & Brand Cloud APIs**:
-  - 🌟 **Samsung SmartThings (Live AC)**: Direct cloud integration using your SmartThings Personal Access Token. Includes automatic device discovery, live room temperature telemetry, and command dispatch!
+- **Smart AC Integration & Brand Local / Cloud APIs**:
+  - 🏠 **Samsung Local Network (LAN REST API)**: Direct zero-cloud local control over HTTPS on port 8888 with Bearer token authentication, self-signed TLS cert bypass, automatic local subnet port scanning, and port 8889 token handshake listener!
+  - 🌟 **Samsung SmartThings (Cloud API)**: Direct cloud integration using your SmartThings Personal Access Token. Includes automatic device discovery, live room temperature telemetry, and command dispatch!
   - **Interactive Demo Mode** (ready out of the box with ambient room drift)
   - **Sensibo Cloud API** (API Key + Pod ID)
   - **Daikin Smart WiFi Controller** (Local LAN HTTP / BRP adapter)
   - **LG ThinQ OpenAPI**
   - **Tuya / Smart Life Cloud IoT**
+- **Built-in Terminal CLI Controller**:
+  - Full CLI interface via `./bin/samsung-ac-cli` or `AeroBar <command>`: query `status`, toggle `power on|off`, set `temp 22`, set `mode Cool`, `scan` subnet, and capture tokens via `listen-token`!
 
 ---
 
@@ -76,7 +79,31 @@ open AeroBar.app
 
 ---
 
-## 🌐 Interactive Web Companion & Simulator
+## 💻 CLI Controller (Local Samsung AC)
+
+AeroBar includes a terminal CLI to test and control your Samsung Smart AC directly over your local network:
+
+```bash
+# Scan local subnet for Samsung ACs on port 8888
+./bin/samsung-ac-cli scan
+
+# Check device status (power, room temp, target temp, mode)
+AC_IP=192.168.1.100 AC_TOKEN=your_token ./bin/samsung-ac-cli status
+
+# Turn power ON or OFF
+./bin/samsung-ac-cli --ip 192.168.1.100 --token your_token power on
+
+# Set target temperature
+./bin/samsung-ac-cli --ip 192.168.1.100 --token your_token temp 22
+
+# Set operational mode (Cool, Wind, Auto, Dry, Heat)
+./bin/samsung-ac-cli --ip 192.168.1.100 --token your_token mode Cool
+
+# Start background listener on port 8889 to capture initial AC token handshake
+./bin/samsung-ac-cli listen-token
+```
+
+---
 
 If you want to preview and test the UI in your web browser:
 

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Run using the compiled bundle executable or swift run
+if [ -f "$DIR/AeroBar.app/Contents/MacOS/AeroBar" ]; then
+    exec "$DIR/AeroBar.app/Contents/MacOS/AeroBar" "$@"
+elif [ -f "$DIR/.build/debug/AeroBar" ]; then
+    exec "$DIR/.build/debug/AeroBar" "$@"
+else
+    cd "$DIR"
+    exec swift run AeroBar "$@"
+fi

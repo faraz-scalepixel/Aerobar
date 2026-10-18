@@ -9,3 +9,6 @@ AeroBar.app
 *.zip
 *.swp
 *.log
+.env
+.env.*
+*.pem

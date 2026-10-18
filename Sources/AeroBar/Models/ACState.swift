@@ -170,6 +170,7 @@ public enum ConnectionStatus: String, Codable {
 }
 
 public enum ACProvider: String, CaseIterable, Identifiable, Codable {
+    case samsungLocal = "Samsung Local Network"
     case smartThings = "Samsung SmartThings"
     case demo = "Demo Mode"
     case sensibo = "Sensibo"
@@ -181,6 +182,7 @@ public enum ACProvider: String, CaseIterable, Identifiable, Codable {
     
     public var subtitle: String {
         switch self {
+        case .samsungLocal: return "Direct Samsung Smart AC control over local HTTPS (port 8888)"
         case .smartThings: return "Direct Samsung Smart AC control via SmartThings Personal Access Token"
         case .demo: return "Realistic in-memory AC simulation"
         case .sensibo: return "Cloud REST API via Sensibo Pod"
@@ -250,11 +252,14 @@ public class ACState: ObservableObject {
     @Published public var showingSettings: Bool = false
     @Published public var isDraggingSlider: Bool = false
     
-    // Cloud provider configuration
+    // Cloud & Local provider configuration
     @Published public var provider: ACProvider {
         didSet {
             UserDefaults.standard.set(provider.rawValue, forKey: "aerobar_provider")
-            if provider == .smartThings {
+            if provider == .samsungLocal {
+                pollSamsungLocal()
+                startLocalPollTimer()
+            } else if provider == .smartThings {
                 pollSmartThings()
                 startSmartThingsPollTimer()
             } else {
@@ -262,6 +267,27 @@ public class ACState: ObservableObject {
             }
         }
     }
+    
+    // Samsung Local Network (Port 8888 HTTPS)
+    @Published public var samsungLocalIp: String {
+        didSet {
+            UserDefaults.standard.set(samsungLocalIp, forKey: "aerobar_local_ip")
+        }
+    }
+    @Published public var samsungLocalPort: String {
+        didSet {
+            UserDefaults.standard.set(samsungLocalPort, forKey: "aerobar_local_port")
+        }
+    }
+    @Published public var samsungLocalToken: String {
+        didSet {
+            UserDefaults.standard.set(samsungLocalToken, forKey: "aerobar_local_token")
+        }
+    }
+    @Published public var isScanningLocalNetwork: Bool = false
+    @Published public var discoveredLocalIps: [String] = []
+    @Published public var isListeningForToken: Bool = false
+    @Published public var samsungLocalStatusMessage: String = ""
     
     // Samsung SmartThings
     @Published public var smartThingsToken: String {
@@ -298,6 +324,17 @@ public class ACState: ObservableObject {
     public static let shared = ACState()
     
     public init() {
+        let env = ProcessInfo.processInfo.environment
+        
+        // Samsung Local Network Config
+        let savedLocalIp = UserDefaults.standard.string(forKey: "aerobar_local_ip") ?? env["AC_IP"] ?? ""
+        let savedLocalPort = UserDefaults.standard.string(forKey: "aerobar_local_port") ?? env["AC_PORT"] ?? "8888"
+        let savedLocalToken = UserDefaults.standard.string(forKey: "aerobar_local_token") ?? env["AC_TOKEN"] ?? ""
+        self.samsungLocalIp = savedLocalIp
+        self.samsungLocalPort = savedLocalPort
+        self.samsungLocalToken = savedLocalToken
+        
+        // SmartThings Config
         let savedToken = UserDefaults.standard.string(forKey: "aerobar_st_token") ?? ""
         let savedDevice = UserDefaults.standard.string(forKey: "aerobar_st_device_id") ?? ""
         self.smartThingsToken = savedToken
@@ -306,14 +343,24 @@ public class ACState: ObservableObject {
         let savedProviderRaw = UserDefaults.standard.string(forKey: "aerobar_provider")
         if let raw = savedProviderRaw, let p = ACProvider(rawValue: raw) {
             self.provider = p
+        } else if !savedLocalIp.isEmpty {
+            self.provider = .samsungLocal
         } else if !savedToken.isEmpty {
             self.provider = .smartThings
         } else {
-            self.provider = .smartThings // Default to Samsung SmartThings for this user!
+            self.provider = .samsungLocal // Prioritize Samsung Local if available
         }
         
         startAmbientSimulation()
-        if self.provider == .smartThings && !savedToken.isEmpty && !savedDevice.isEmpty {
+        
+        if self.provider == .samsungLocal && !savedLocalIp.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.pollSamsungLocal()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.startLocalPollTimer()
+            }
+        } else if self.provider == .smartThings && !savedToken.isEmpty && !savedDevice.isEmpty {
             // Initial poll after 1s to hydrate state from real device
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 self?.pollSmartThings()
@@ -323,6 +370,17 @@ public class ACState: ObservableObject {
                 self?.startSmartThingsPollTimer()
             }
         }
+    }
+    
+    /// Start a 30-second polling timer for Samsung Local Network
+    public func startLocalPollTimer() {
+        pollTimer?.cancel()
+        guard provider == .samsungLocal, !samsungLocalIp.isEmpty else { return }
+        pollTimer = Timer.publish(every: 30.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.pollSamsungLocal()
+            }
     }
     
     /// Start a 30-second polling timer to keep UI in sync with real AC state
@@ -397,16 +455,102 @@ public class ACState: ObservableObject {
             switch result {
             case .success(let msg):
                 self.connectionStatus = .connected
-                self.smartThingsStatusMessage = msg
+                if self.provider == .samsungLocal {
+                    self.samsungLocalStatusMessage = msg
+                } else {
+                    self.smartThingsStatusMessage = msg
+                }
             case .failure(let error):
                 self.connectionStatus = .disconnected
-                self.smartThingsStatusMessage = error.localizedDescription
+                if self.provider == .samsungLocal {
+                    self.samsungLocalStatusMessage = error.localizedDescription
+                } else {
+                    self.smartThingsStatusMessage = error.localizedDescription
+                }
             }
             // If state changed while we were syncing, send the latest state now
             if self.hasPendingSync {
                 self.performSync()
             }
         }
+    }
+    
+    public func pollSamsungLocal() {
+        guard provider == .samsungLocal, !samsungLocalIp.isEmpty else { return }
+        
+        let config = SamsungLocalConfig(
+            ip: samsungLocalIp,
+            port: Int(samsungLocalPort),
+            token: samsungLocalToken
+        )
+        
+        SamsungLocalACService.shared.getStatus(config: config) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let status):
+                self.isUpdatingFromRemote = true
+                self.connectionStatus = .connected
+                self.isOn = status.power
+                if let target = status.targetTemperature {
+                    self.targetTemperature = target
+                }
+                if let room = status.roomTemperature {
+                    self.roomTemperature = room
+                }
+                if let m = status.mode {
+                    self.mode = SamsungLocalACService.mapSamsungToACMode(m)
+                }
+                self.isUpdatingFromRemote = false
+                self.samsungLocalStatusMessage = "Connected to \(self.samsungLocalIp):\(self.samsungLocalPort) • \(status.power ? "ON" : "OFF") • \(Int(self.targetTemperature))°C"
+            case .failure(let err):
+                self.connectionStatus = .disconnected
+                self.samsungLocalStatusMessage = "Status Error: \(err.localizedDescription)"
+            }
+        }
+    }
+    
+    public func scanLocalNetwork() {
+        isScanningLocalNetwork = true
+        samsungLocalStatusMessage = "Scanning local network for Samsung ACs..."
+        
+        let portNum = UInt16(samsungLocalPort) ?? 8888
+        LocalNetworkScanner.shared.scan(port: portNum, progress: { [weak self] progressMsg in
+            self?.samsungLocalStatusMessage = progressMsg
+        }) { [weak self] discovered in
+            guard let self = self else { return }
+            self.isScanningLocalNetwork = false
+            self.discoveredLocalIps = discovered
+            if let first = discovered.first {
+                if self.samsungLocalIp.isEmpty {
+                    self.samsungLocalIp = first
+                }
+                self.samsungLocalStatusMessage = "Found \(discovered.count) device(s). Selected \(first)."
+                self.pollSamsungLocal()
+                self.startLocalPollTimer()
+            } else {
+                self.samsungLocalStatusMessage = "No devices responded on port \(portNum). You can enter the IP manually."
+            }
+        }
+    }
+    
+    public func startTokenCaptureServer() {
+        isListeningForToken = true
+        samsungLocalStatusMessage = "Listening on port 8889 for AC token..."
+        
+        TokenInterceptorServer.shared.start(port: 8889, onToken: { [weak self] token in
+            guard let self = self else { return }
+            self.isListeningForToken = false
+            self.samsungLocalToken = token
+            self.samsungLocalStatusMessage = "Token captured! Testing connection..."
+            self.pollSamsungLocal()
+        }, onStatus: { [weak self] msg in
+            self?.samsungLocalStatusMessage = msg
+        })
+    }
+    
+    public func stopTokenCaptureServer() {
+        isListeningForToken = false
+        TokenInterceptorServer.shared.stop()
     }
     
     public func pollSmartThings() {

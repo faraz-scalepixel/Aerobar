@@ -34,6 +34,9 @@ public class SmartACService {
     // Sync state to the active cloud or local provider
     public func syncState(state: ACState, completion: @escaping (Result<String, Error>) -> Void) {
         switch state.provider {
+        case .samsungLocal:
+            SamsungLocalACService.shared.syncState(state: state, completion: completion)
+            
         case .smartThings:
             syncSmartThings(state: state, completion: completion)
             

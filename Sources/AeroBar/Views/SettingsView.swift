@@ -55,7 +55,158 @@ public struct SettingsView: View {
                     }
                     
                     // Provider-specific config fields
-                    if state.provider == .smartThings {
+                    if state.provider == .samsungLocal {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Image(systemName: "wifi.router.fill")
+                                    .foregroundColor(Color(red: 0.15, green: 0.75, blue: 1.0))
+                                Text("Samsung Local Network (LAN)")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Text("HTTPS Port 8888")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.blue.opacity(0.2)))
+                                    .foregroundColor(Color(red: 0.3, green: 0.75, blue: 1.0))
+                            }
+                            
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("AC IP Address")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Color(white: 0.6))
+                                    TextField("e.g. 192.168.1.100", text: $state.samsungLocalIp)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Port")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Color(white: 0.6))
+                                    TextField("8888", text: $state.samsungLocalPort)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                        .frame(width: 60)
+                                }
+                            }
+                            
+                            // Network Scan & Discover button
+                            HStack {
+                                Button(action: {
+                                    state.scanLocalNetwork()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        if state.isScanningLocalNetwork {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        } else {
+                                            Image(systemName: "magnifyingglass")
+                                        }
+                                        Text(state.isScanningLocalNetwork ? "Scanning..." : "Scan Network for AC")
+                                    }
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(white: 0.22)))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .disabled(state.isScanningLocalNetwork)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    state.pollSamsungLocal()
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "bolt.fill")
+                                        Text("Test Connection")
+                                    }
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(red: 0.1, green: 0.5, blue: 0.95)))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            
+                            // Discovered devices chips
+                            if !state.discoveredLocalIps.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Found on Local Network:")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(Color(white: 0.6))
+                                    
+                                    HStack(spacing: 6) {
+                                        ForEach(state.discoveredLocalIps, id: \.self) { foundIp in
+                                            Button(action: {
+                                                state.samsungLocalIp = foundIp
+                                                state.pollSamsungLocal()
+                                            }) {
+                                                HStack(spacing: 3) {
+                                                    Image(systemName: foundIp == state.samsungLocalIp ? "checkmark.circle.fill" : "circle")
+                                                        .font(.system(size: 9))
+                                                    Text(foundIp)
+                                                        .font(.system(size: 10, weight: .medium))
+                                                }
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 3)
+                                                .background(RoundedRectangle(cornerRadius: 5).fill(foundIp == state.samsungLocalIp ? Color.blue.opacity(0.3) : Color(white: 0.2)))
+                                                .foregroundColor(foundIp == state.samsungLocalIp ? Color(red: 0.4, green: 0.8, blue: 1.0) : .white)
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Device Authorization Token (Bearer)")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Color(white: 0.6))
+                                    Spacer()
+                                    Button(action: {
+                                        if state.isListeningForToken {
+                                            state.stopTokenCaptureServer()
+                                        } else {
+                                            state.startTokenCaptureServer()
+                                        }
+                                    }) {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: state.isListeningForToken ? "stop.fill" : "ear.badge.waveform")
+                                            Text(state.isListeningForToken ? "Stop (Port 8889)" : "Capture Token (8889)")
+                                        }
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundColor(state.isListeningForToken ? .orange : Color(red: 0.3, green: 0.75, blue: 1.0))
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                                
+                                SecureField("Paste Token or click Capture Token", text: $state.samsungLocalToken)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                            }
+                            
+                            if !state.samsungLocalStatusMessage.isEmpty {
+                                Text(state.samsungLocalStatusMessage)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(
+                                        state.samsungLocalStatusMessage.contains("Error") ? Color.red :
+                                        (state.samsungLocalStatusMessage.contains("Connected") || state.samsungLocalStatusMessage.contains("captured") || state.samsungLocalStatusMessage.contains("Found")) ? Color(red: 0.3, green: 0.9, blue: 0.5) :
+                                        Color(red: 0.95, green: 0.8, blue: 0.2)
+                                    )
+                                    .lineLimit(3)
+                            }
+                            
+                            Text("Note: Legacy Samsung AC local REST API uses self-signed HTTPS on port 8888. AeroBar handles TLS verification bypass natively.")
+                                .font(.system(size: 9))
+                                .foregroundColor(Color(white: 0.45))
+                        }
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.12)))
+                    } else if state.provider == .smartThings {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Image(systemName: "antenna.radiowaves.left.and.right")
