@@ -23,6 +23,7 @@ public class CLIController {
         var ip: String? = nil
         var port: Int? = nil
         var token: String? = nil
+        var useHttps: Bool? = nil
         var command: String? = nil
         var commandArg: String? = nil
         
@@ -38,6 +39,12 @@ public class CLIController {
             } else if arg == "--token" && i + 1 < arguments.count {
                 token = arguments[i + 1]
                 i += 2
+            } else if arg == "--http" {
+                useHttps = false
+                i += 1
+            } else if arg == "--https" {
+                useHttps = true
+                i += 1
             } else if arg == "-h" || arg == "--help" || arg == "help" {
                 printUsage()
                 exit(0)
@@ -53,7 +60,7 @@ public class CLIController {
             }
         }
         
-        let config = SamsungLocalConfig(ip: ip, port: port, token: token)
+        let config = SamsungLocalConfig(ip: ip, port: port, token: token, useHttps: useHttps)
         
         switch (command ?? "status").lowercased() {
         case "status", "--status", "-s":

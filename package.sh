@@ -23,6 +23,10 @@ rm -rf dmg_staging "$DMG_NAME"
 mkdir -p dmg_staging
 cp -R AeroBar.app dmg_staging/
 ln -s /Applications dmg_staging/Applications
+if [ -f "Sources/AeroBar/Resources/AppIcon.icns" ]; then
+    cp "Sources/AeroBar/Resources/AppIcon.icns" dmg_staging/.VolumeIcon.icns 2>/dev/null || true
+    SetFile -a C dmg_staging 2>/dev/null || true
+fi
 hdiutil create -volname "AeroBar" -srcfolder dmg_staging -ov -format UDZO "$DMG_NAME"
 rm -rf dmg_staging
 

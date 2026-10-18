@@ -87,7 +87,19 @@ public struct SettingsView: View {
                                         .foregroundColor(Color(white: 0.6))
                                     TextField("8888", text: $state.samsungLocalPort)
                                         .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .frame(width: 60)
+                                        .frame(width: 50)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Protocol")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(Color(white: 0.6))
+                                    Picker("", selection: $state.samsungLocalUseHttps) {
+                                        Text("HTTPS").tag(true)
+                                        Text("HTTP").tag(false)
+                                    }
+                                    .pickerStyle(PopUpButtonPickerStyle())
+                                    .frame(width: 80)
                                 }
                             }
                             
@@ -200,7 +212,7 @@ public struct SettingsView: View {
                                     .lineLimit(3)
                             }
                             
-                            Text("Note: Legacy Samsung AC local REST API uses self-signed HTTPS on port 8888. AeroBar handles TLS verification bypass natively.")
+                            Text("💡 Tip: Local Samsung AC API uses port 8888. If you get a TLS error, verify the IP belongs to your AC (and not an Echo speaker or router) or try toggling HTTP.")
                                 .font(.system(size: 9))
                                 .foregroundColor(Color(white: 0.45))
                         }

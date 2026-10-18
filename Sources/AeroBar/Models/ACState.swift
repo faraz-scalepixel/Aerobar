@@ -284,6 +284,11 @@ public class ACState: ObservableObject {
             UserDefaults.standard.set(samsungLocalToken, forKey: "aerobar_local_token")
         }
     }
+    @Published public var samsungLocalUseHttps: Bool {
+        didSet {
+            UserDefaults.standard.set(samsungLocalUseHttps, forKey: "aerobar_local_https")
+        }
+    }
     @Published public var isScanningLocalNetwork: Bool = false
     @Published public var discoveredLocalIps: [String] = []
     @Published public var isListeningForToken: Bool = false
@@ -330,9 +335,11 @@ public class ACState: ObservableObject {
         let savedLocalIp = UserDefaults.standard.string(forKey: "aerobar_local_ip") ?? env["AC_IP"] ?? ""
         let savedLocalPort = UserDefaults.standard.string(forKey: "aerobar_local_port") ?? env["AC_PORT"] ?? "8888"
         let savedLocalToken = UserDefaults.standard.string(forKey: "aerobar_local_token") ?? env["AC_TOKEN"] ?? ""
+        let savedLocalHttps = UserDefaults.standard.object(forKey: "aerobar_local_https") as? Bool ?? true
         self.samsungLocalIp = savedLocalIp
         self.samsungLocalPort = savedLocalPort
         self.samsungLocalToken = savedLocalToken
+        self.samsungLocalUseHttps = savedLocalHttps
         
         // SmartThings Config
         let savedToken = UserDefaults.standard.string(forKey: "aerobar_st_token") ?? ""
@@ -481,7 +488,8 @@ public class ACState: ObservableObject {
         let config = SamsungLocalConfig(
             ip: samsungLocalIp,
             port: Int(samsungLocalPort),
-            token: samsungLocalToken
+            token: samsungLocalToken,
+            useHttps: samsungLocalUseHttps
         )
         
         SamsungLocalACService.shared.getStatus(config: config) { [weak self] result in

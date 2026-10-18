@@ -41,7 +41,10 @@ swiftc -O \
     "${SOURCES[@]}" \
     -o "$MACOS_DIR/$APP_NAME"
 
-# Copy Icon if present
+# Copy Icons if present
+if [ -f "Sources/AeroBar/Resources/AppIcon.icns" ]; then
+    cp "Sources/AeroBar/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+fi
 if [ -f "Sources/AeroBar/Resources/AppIcon.png" ]; then
     cp "Sources/AeroBar/Resources/AppIcon.png" "$RESOURCES_DIR/AppIcon.png"
 fi
@@ -60,12 +63,14 @@ cat << 'EOF' > "$CONTENTS/Info.plist"
     <string>AeroBar</string>
     <key>CFBundleDisplayName</key>
     <string>AeroBar</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.1.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
@@ -74,6 +79,13 @@ cat << 'EOF' > "$CONTENTS/Info.plist"
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
 EOF

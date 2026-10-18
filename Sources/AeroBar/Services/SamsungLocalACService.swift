@@ -5,8 +5,9 @@ public struct SamsungLocalConfig {
     public var ip: String
     public var port: Int
     public var token: String
+    public var useHttps: Bool
     
-    public init(ip: String? = nil, port: Int? = nil, token: String? = nil) {
+    public init(ip: String? = nil, port: Int? = nil, token: String? = nil, useHttps: Bool? = nil) {
         let env = ProcessInfo.processInfo.environment
         let defaults = UserDefaults.standard
         
@@ -24,6 +25,15 @@ public struct SamsungLocalConfig {
             ?? env["AC_TOKEN"]
             ?? defaults.string(forKey: "aerobar_local_token")
             ?? ""
+            
+        self.useHttps = useHttps
+            ?? (defaults.object(forKey: "aerobar_local_https") as? Bool)
+            ?? true
+    }
+    
+    public var baseUrl: String {
+        let scheme = useHttps ? "https" : "http"
+        return "\(scheme)://\(ip):\(port)/devices/0"
     }
     
     public var isValid: Bool {
@@ -118,8 +128,8 @@ public class SamsungLocalACService {
             return
         }
         
-        guard let url = URL(string: "https://\(activeConfig.ip):\(activeConfig.port)/devices/0") else {
-            completion(.failure(SamsungLocalError.invalidURL("https://\(activeConfig.ip):\(activeConfig.port)/devices/0")))
+        guard let url = URL(string: activeConfig.baseUrl) else {
+            completion(.failure(SamsungLocalError.invalidURL(activeConfig.baseUrl)))
             return
         }
         
@@ -329,8 +339,8 @@ public class SamsungLocalACService {
             return
         }
         
-        guard let url = URL(string: "https://\(activeConfig.ip):\(activeConfig.port)/devices/0") else {
-            completion(.failure(SamsungLocalError.invalidURL("https://\(activeConfig.ip):\(activeConfig.port)/devices/0")))
+        guard let url = URL(string: activeConfig.baseUrl) else {
+            completion(.failure(SamsungLocalError.invalidURL(activeConfig.baseUrl)))
             return
         }
         
@@ -376,6 +386,24 @@ public class SamsungLocalACService {
             
             if let error = error {
                 let nsErr = error as NSError
+                
+                // Automatic HTTP fallback if HTTPS TLS handshake fails
+                if request.url?.scheme == "https" &&
+                   (nsErr.code == NSURLErrorSecureConnectionFailed || nsErr.code == -1200 || nsErr.code == -9816) {
+                    if let rawUrl = request.url?.absoluteString,
+                       let httpUrl = URL(string: rawUrl.replacingOccurrences(of: "https://", with: "http://")) {
+                        var httpReq = request
+                        httpReq.url = httpUrl
+                        self.performRequestWithRetry(
+                            request: httpReq,
+                            maxRetries: 0,
+                            attempt: maxRetries,
+                            completion: completion
+                        )
+                        return
+                    }
+                }
+                
                 // Check if retryable network drop or timeout
                 let isRetryable = nsErr.domain == NSURLErrorDomain &&
                     (nsErr.code == NSURLErrorTimedOut ||
@@ -392,6 +420,11 @@ public class SamsungLocalACService {
                             completion: completion
                         )
                     }
+                    return
+                }
+                
+                if nsErr.code == NSURLErrorSecureConnectionFailed || nsErr.code == -1200 {
+                    completion(.failure(SamsungLocalError.networkError("TLS connection rejected by host. Ensure IP is your Samsung AC (and not an Echo or other device) or check token.")))
                     return
                 }
                 
